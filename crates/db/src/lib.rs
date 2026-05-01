@@ -6,6 +6,8 @@ use sqlx::{
     PgPool,
 };
 
+pub mod control_schema;
+
 #[derive(Clone)]
 pub struct DatabasePools {
     control: PgPool,
