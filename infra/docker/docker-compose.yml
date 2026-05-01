@@ -1,0 +1,67 @@
+version: "3.9"
+
+services:
+  postgres-control:
+    image: postgres:16.3
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: placeonix_control
+      POSTGRES_USER: placeonix
+      POSTGRES_PASSWORD: placeonix_dev
+    volumes:
+      - pg_control_data:/var/lib/postgresql/data
+
+  postgres-tenant:
+    image: postgres:16.3
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: placeonix_tenant
+      POSTGRES_USER: placeonix
+      POSTGRES_PASSWORD: placeonix_dev
+    volumes:
+      - pg_tenant_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7.2.5
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+
+  nats:
+    image: nats:2.10.14
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    command: ["-js", "-m", "8222"]
+
+  minio:
+    image: minio/minio:RELEASE.2024-03-30T09-41-56Z
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: placeonix
+      MINIO_ROOT_PASSWORD: placeonix_dev
+    command: ["server", "/data", "--console-address", ":9001"]
+    volumes:
+      - minio_data:/data
+
+  minio-init:
+    image: minio/mc:RELEASE.2024-03-30T09-41-56Z
+    depends_on:
+      - minio
+    entrypoint: ["/bin/sh", "-c"]
+    command: >
+      mc alias set local http://minio:9000 placeonix placeonix_dev && \
+      mc mb -p local/placeonix && \
+      mc anonymous set none local/placeonix
+
+volumes:
+  pg_control_data:
+  pg_tenant_data:
+  redis_data:
+  minio_data:
