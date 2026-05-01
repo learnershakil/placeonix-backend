@@ -53,6 +53,51 @@ impl RefreshTokenService {
     }
 }
 
+#[derive(Clone, Default)]
+pub struct OtpService;
+
+impl OtpService {
+    pub fn issue(&self) -> OtpCode {
+        OtpCode::generate()
+    }
+
+    pub fn hash(&self, code: &OtpCode) -> String {
+        hash_secret(code.expose())
+    }
+
+    pub fn verify(&self, candidate: &str, expected_hash: &str) -> bool {
+        hash_secret(candidate) == expected_hash
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OtpCode {
+    code: String,
+}
+
+impl OtpCode {
+    pub fn generate() -> Self {
+        use argon2::password_hash::rand_core::RngCore;
+
+        let value = OsRng.next_u32() % 1_000_000;
+        Self {
+            code: format!("{value:06}"),
+        }
+    }
+
+    pub fn from_code(code: impl Into<String>) -> Result<Self, AuthError> {
+        let code = code.into();
+        if code.len() != 6 || !code.chars().all(|ch| ch.is_ascii_digit()) {
+            return Err(AuthError::OtpInvalid);
+        }
+        Ok(Self { code })
+    }
+
+    pub fn expose(&self) -> &str {
+        &self.code
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RefreshToken {
     secret: String,
@@ -96,6 +141,7 @@ pub enum AuthError {
     PasswordHashFailed,
     PasswordHashInvalid,
     RefreshTokenInvalid,
+    OtpInvalid,
 }
 
 impl fmt::Display for AuthError {
@@ -105,6 +151,7 @@ impl fmt::Display for AuthError {
             Self::PasswordHashFailed => f.write_str("failed to hash password"),
             Self::PasswordHashInvalid => f.write_str("stored password hash is invalid"),
             Self::RefreshTokenInvalid => f.write_str("refresh token is invalid"),
+            Self::OtpInvalid => f.write_str("otp code is invalid"),
         }
     }
 }
@@ -139,7 +186,9 @@ fn rand_bytes() -> [u8; REFRESH_TOKEN_BYTES] {
 
 #[cfg(test)]
 mod tests {
-    use super::{hash_secret, PasswordService, RefreshToken, RefreshTokenService};
+    use super::{
+        hash_secret, OtpCode, OtpService, PasswordService, RefreshToken, RefreshTokenService,
+    };
 
     #[test]
     fn hashes_and_verifies_passwords() {
@@ -183,5 +232,24 @@ mod tests {
             uuid::Uuid::from_u128(0x12345678123456781234567812345678)
         );
         assert_eq!(rotation.token_hash, rotation.token.hash());
+    }
+
+    #[test]
+    fn issues_and_hashes_otp_codes() {
+        let service = OtpService;
+        let code = service.issue();
+        let hash = service.hash(&code);
+
+        assert_eq!(code.expose().len(), 6);
+        assert!(code.expose().chars().all(|ch| ch.is_ascii_digit()));
+        assert!(service.verify(code.expose(), &hash));
+        assert!(!service.verify("000000", &hash) || code.expose() == "000000");
+    }
+
+    #[test]
+    fn rejects_malformed_otp_codes() {
+        assert!(OtpCode::from_code("12345").is_err());
+        assert!(OtpCode::from_code("abcdef").is_err());
+        assert!(OtpCode::from_code("123456").is_ok());
     }
 }

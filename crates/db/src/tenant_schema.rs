@@ -1,9 +1,10 @@
 pub const RBAC_SCHEMA: &str = include_str!("../../../migrations/tenant/0001_rbac.sql");
 pub const IDENTITY_SCHEMA: &str = include_str!("../../../migrations/tenant/0002_identity.sql");
+pub const OTP_SCHEMA: &str = include_str!("../../../migrations/tenant/0003_otp.sql");
 
 #[cfg(test)]
 mod tests {
-    use super::{IDENTITY_SCHEMA, RBAC_SCHEMA};
+    use super::{IDENTITY_SCHEMA, OTP_SCHEMA, RBAC_SCHEMA};
 
     #[test]
     fn migration_contains_rbac_tables() {
@@ -31,5 +32,13 @@ mod tests {
                 "missing identity table `{table}`"
             );
         }
+    }
+
+    #[test]
+    fn migration_contains_otp_tables() {
+        assert!(
+            OTP_SCHEMA.contains("iam.otp_challenges"),
+            "missing OTP challenges table"
+        );
     }
 }
