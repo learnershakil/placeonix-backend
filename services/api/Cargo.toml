@@ -22,3 +22,4 @@ http.workspace = true
 telemetry = { path = "../../crates/telemetry", package = "placeonix-telemetry", default-features = false }
 api-contracts = { path = "../../crates/api-contracts", package = "placeonix-api-contracts" }
 placeonix-config = { path = "../../crates/config", package = "placeonix-config" }
+placeonix-db = { path = "../../crates/db", package = "placeonix-db" }

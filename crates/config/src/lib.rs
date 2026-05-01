@@ -15,6 +15,9 @@ const DEFAULT_CONTROL_DATABASE_URL: &str =
     "postgresql://placeonix:placeonix_dev@localhost:5432/placeonix_control";
 const DEFAULT_TENANT_DATABASE_URL: &str =
     "postgresql://placeonix:placeonix_dev@localhost:5433/placeonix_tenant";
+const DEFAULT_DB_MAX_CONNECTIONS: &str = "10";
+const DEFAULT_DB_MIN_CONNECTIONS: &str = "0";
+const DEFAULT_DB_ACQUIRE_TIMEOUT_SECS: &str = "3";
 const DEFAULT_REDIS_URL: &str = "redis://localhost:6379";
 const DEFAULT_NATS_URL: &str = "nats://localhost:4222";
 const DEFAULT_S3_ENDPOINT: &str = "http://localhost:9000";
@@ -76,6 +79,29 @@ impl AppConfig {
             "TENANT_DATABASE_URL",
             get_or_default(&get, "TENANT_DATABASE_URL", DEFAULT_TENANT_DATABASE_URL),
         )?;
+        let max_connections = parse_positive_u32(
+            "DB_MAX_CONNECTIONS",
+            get_or_default(&get, "DB_MAX_CONNECTIONS", DEFAULT_DB_MAX_CONNECTIONS),
+        )?;
+        let min_connections = parse_u32(
+            "DB_MIN_CONNECTIONS",
+            get_or_default(&get, "DB_MIN_CONNECTIONS", DEFAULT_DB_MIN_CONNECTIONS),
+        )?;
+        if min_connections > max_connections {
+            return Err(ConfigError::InvalidNumber {
+                key: "DB_MIN_CONNECTIONS",
+                value: min_connections.to_string(),
+                reason: "must be less than or equal to DB_MAX_CONNECTIONS",
+            });
+        }
+        let acquire_timeout_secs = parse_positive_u64(
+            "DB_ACQUIRE_TIMEOUT_SECS",
+            get_or_default(
+                &get,
+                "DB_ACQUIRE_TIMEOUT_SECS",
+                DEFAULT_DB_ACQUIRE_TIMEOUT_SECS,
+            ),
+        )?;
         let redis_url = required_secret_url(
             "REDIS_URL",
             get_or_default(&get, "REDIS_URL", DEFAULT_REDIS_URL),
@@ -114,6 +140,9 @@ impl AppConfig {
             databases: DatabaseConfig {
                 control_url,
                 tenant_url,
+                max_connections,
+                min_connections,
+                acquire_timeout_secs,
             },
             redis_url,
             nats_url,
@@ -144,6 +173,9 @@ pub struct HttpConfig {
 pub struct DatabaseConfig {
     pub control_url: SecretString,
     pub tenant_url: SecretString,
+    pub max_connections: u32,
+    pub min_connections: u32,
+    pub acquire_timeout_secs: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -323,6 +355,29 @@ fn parse_positive_u64(key: &'static str, value: String) -> Result<u64, ConfigErr
     }
 }
 
+fn parse_u32(key: &'static str, value: String) -> Result<u32, ConfigError> {
+    value
+        .parse::<u32>()
+        .map_err(|_| ConfigError::InvalidNumber {
+            key,
+            value,
+            reason: "expected a non-negative integer",
+        })
+}
+
+fn parse_positive_u32(key: &'static str, value: String) -> Result<u32, ConfigError> {
+    let parsed = parse_u32(key, value.clone())?;
+    if parsed == 0 {
+        Err(ConfigError::InvalidNumber {
+            key,
+            value,
+            reason: "must be greater than zero",
+        })
+    } else {
+        Ok(parsed)
+    }
+}
+
 fn parse_positive_usize(key: &'static str, value: String) -> Result<usize, ConfigError> {
     let parsed = parse_positive_u64(key, value.clone())?;
     usize::try_from(parsed).map_err(|_| ConfigError::InvalidNumber {
@@ -353,6 +408,9 @@ mod tests {
         assert_eq!(config.http.bind_addr.to_string(), "0.0.0.0:8080");
         assert_eq!(config.http.request_timeout_secs, 30);
         assert_eq!(config.http.max_body_bytes, 1_048_576);
+        assert_eq!(config.databases.max_connections, 10);
+        assert_eq!(config.databases.min_connections, 0);
+        assert_eq!(config.databases.acquire_timeout_secs, 3);
         assert_eq!(config.object_storage.bucket, "placeonix");
     }
 
@@ -363,6 +421,9 @@ mod tests {
             "HTTP_BIND_ADDR" => Some("127.0.0.1:9009".to_owned()),
             "HTTP_REQUEST_TIMEOUT_SECS" => Some("12".to_owned()),
             "HTTP_MAX_BODY_BYTES" => Some("2048".to_owned()),
+            "DB_MAX_CONNECTIONS" => Some("24".to_owned()),
+            "DB_MIN_CONNECTIONS" => Some("2".to_owned()),
+            "DB_ACQUIRE_TIMEOUT_SECS" => Some("1".to_owned()),
             "S3_BUCKET" => Some("placeonix-prod".to_owned()),
             _ => None,
         })
@@ -375,7 +436,28 @@ mod tests {
         assert_eq!(config.http.bind_addr.to_string(), "127.0.0.1:9009");
         assert_eq!(config.http.request_timeout_secs, 12);
         assert_eq!(config.http.max_body_bytes, 2048);
+        assert_eq!(config.databases.max_connections, 24);
+        assert_eq!(config.databases.min_connections, 2);
+        assert_eq!(config.databases.acquire_timeout_secs, 1);
         assert_eq!(config.object_storage.bucket, "placeonix-prod");
+    }
+
+    #[test]
+    fn rejects_min_connections_above_max() {
+        let error = AppConfig::from_source("placeonix-api", |key| match key {
+            "DB_MAX_CONNECTIONS" => Some("2".to_owned()),
+            "DB_MIN_CONNECTIONS" => Some("3".to_owned()),
+            _ => None,
+        })
+        .expect_err("invalid pool sizing is rejected");
+
+        assert!(matches!(
+            error,
+            ConfigError::InvalidNumber {
+                key: "DB_MIN_CONNECTIONS",
+                ..
+            }
+        ));
     }
 
     #[test]

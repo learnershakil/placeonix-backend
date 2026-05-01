@@ -21,6 +21,8 @@ const REQUEST_ID_HEADER: &str = "x-request-id";
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = AppConfig::from_env("placeonix-api")?;
     let telemetry = telemetry::init(&config.service.name)?;
+    let _db_pools = placeonix_db::connect(&config.databases).await?;
+    _db_pools.verify_connectivity().await?;
 
     let mut app = Router::new()
         .route("/healthz", get(healthz))
@@ -64,6 +66,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!(
         service = %config.service.name,
         environment = %config.service.environment,
+        db_max_connections = config.databases.max_connections,
+        db_acquire_timeout_secs = config.databases.acquire_timeout_secs,
         %local_addr,
         "api listening"
     );
