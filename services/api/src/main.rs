@@ -1,3 +1,4 @@
+use api_contracts::AppError;
 use axum::{routing::get, Router};
 use http::{HeaderName, HeaderValue, Request};
 use tower_http::request_id::{
@@ -13,7 +14,9 @@ const REQUEST_ID_HEADER: &str = "x-request-id";
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let telemetry = telemetry::init("placeonix-api")?;
 
-    let mut app = Router::new().route("/healthz", get(healthz));
+    let mut app = Router::new()
+        .route("/healthz", get(healthz))
+        .fallback(not_found);
     if let Some(handle) = telemetry.metrics_handle() {
         app = app.merge(metrics_router(handle));
     }
@@ -52,6 +55,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn healthz() -> &'static str {
     "ok"
+}
+
+async fn not_found() -> AppError {
+    AppError::not_found("route not found")
 }
 
 #[derive(Clone)]

@@ -19,3 +19,4 @@ tower-http = { workspace = true, features = ["request-id", "trace"] }
 uuid = { workspace = true, features = ["v4"] }
 http.workspace = true
 telemetry = { path = "../../crates/telemetry", package = "placeonix-telemetry", default-features = false }
+api-contracts = { path = "../../crates/api-contracts", package = "placeonix-api-contracts" }
