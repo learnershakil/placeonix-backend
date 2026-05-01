@@ -9,6 +9,8 @@ use std::{
 use url::{ParseError as UrlParseError, Url};
 
 const DEFAULT_HTTP_BIND_ADDR: &str = "0.0.0.0:8080";
+const DEFAULT_HTTP_REQUEST_TIMEOUT_SECS: &str = "30";
+const DEFAULT_HTTP_MAX_BODY_BYTES: &str = "1048576";
 const DEFAULT_CONTROL_DATABASE_URL: &str =
     "postgresql://placeonix:placeonix_dev@localhost:5432/placeonix_control";
 const DEFAULT_TENANT_DATABASE_URL: &str =
@@ -53,6 +55,18 @@ impl AppConfig {
             "HTTP_BIND_ADDR",
             get_or_default(&get, "HTTP_BIND_ADDR", DEFAULT_HTTP_BIND_ADDR),
         )?;
+        let request_timeout_secs = parse_positive_u64(
+            "HTTP_REQUEST_TIMEOUT_SECS",
+            get_or_default(
+                &get,
+                "HTTP_REQUEST_TIMEOUT_SECS",
+                DEFAULT_HTTP_REQUEST_TIMEOUT_SECS,
+            ),
+        )?;
+        let max_body_bytes = parse_positive_usize(
+            "HTTP_MAX_BODY_BYTES",
+            get_or_default(&get, "HTTP_MAX_BODY_BYTES", DEFAULT_HTTP_MAX_BODY_BYTES),
+        )?;
 
         let control_url = required_secret_url(
             "CONTROL_DATABASE_URL",
@@ -92,7 +106,11 @@ impl AppConfig {
                 name: service_name,
                 environment,
             },
-            http: HttpConfig { bind_addr },
+            http: HttpConfig {
+                bind_addr,
+                request_timeout_secs,
+                max_body_bytes,
+            },
             databases: DatabaseConfig {
                 control_url,
                 tenant_url,
@@ -118,6 +136,8 @@ pub struct ServiceConfig {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HttpConfig {
     pub bind_addr: SocketAddr,
+    pub request_timeout_secs: u64,
+    pub max_body_bytes: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -211,6 +231,11 @@ pub enum ConfigError {
         value: String,
         source: UrlParseError,
     },
+    InvalidNumber {
+        key: &'static str,
+        value: String,
+        reason: &'static str,
+    },
 }
 
 impl fmt::Display for ConfigError {
@@ -229,6 +254,9 @@ impl fmt::Display for ConfigError {
             Self::InvalidUrl { key, value, .. } => {
                 write!(f, "invalid URL for `{key}`: `{value}`")
             }
+            Self::InvalidNumber { key, value, reason } => {
+                write!(f, "invalid number for `{key}`: `{value}`; {reason}")
+            }
         }
     }
 }
@@ -238,7 +266,9 @@ impl Error for ConfigError {
         match self {
             Self::InvalidBindAddr { source, .. } => Some(source),
             Self::InvalidUrl { source, .. } => Some(source),
-            Self::MissingRequired { .. } | Self::InvalidEnvironment { .. } => None,
+            Self::MissingRequired { .. }
+            | Self::InvalidEnvironment { .. }
+            | Self::InvalidNumber { .. } => None,
         }
     }
 }
@@ -273,6 +303,35 @@ fn non_empty(key: &'static str, value: String) -> Result<String, ConfigError> {
     }
 }
 
+fn parse_positive_u64(key: &'static str, value: String) -> Result<u64, ConfigError> {
+    let parsed = value
+        .parse::<u64>()
+        .map_err(|_| ConfigError::InvalidNumber {
+            key,
+            value: value.clone(),
+            reason: "expected a positive integer",
+        })?;
+
+    if parsed == 0 {
+        Err(ConfigError::InvalidNumber {
+            key,
+            value,
+            reason: "must be greater than zero",
+        })
+    } else {
+        Ok(parsed)
+    }
+}
+
+fn parse_positive_usize(key: &'static str, value: String) -> Result<usize, ConfigError> {
+    let parsed = parse_positive_u64(key, value.clone())?;
+    usize::try_from(parsed).map_err(|_| ConfigError::InvalidNumber {
+        key,
+        value,
+        reason: "value exceeds this platform's usize range",
+    })
+}
+
 fn parse_url(key: &'static str, value: &str) -> Result<Url, ConfigError> {
     Url::parse(value).map_err(|source| ConfigError::InvalidUrl {
         key,
@@ -292,6 +351,8 @@ mod tests {
         assert_eq!(config.service.name, "placeonix-api");
         assert_eq!(config.service.environment, DeploymentEnvironment::Local);
         assert_eq!(config.http.bind_addr.to_string(), "0.0.0.0:8080");
+        assert_eq!(config.http.request_timeout_secs, 30);
+        assert_eq!(config.http.max_body_bytes, 1_048_576);
         assert_eq!(config.object_storage.bucket, "placeonix");
     }
 
@@ -300,6 +361,8 @@ mod tests {
         let config = AppConfig::from_source("placeonix-api", |key| match key {
             "APP_ENV" => Some("production".to_owned()),
             "HTTP_BIND_ADDR" => Some("127.0.0.1:9009".to_owned()),
+            "HTTP_REQUEST_TIMEOUT_SECS" => Some("12".to_owned()),
+            "HTTP_MAX_BODY_BYTES" => Some("2048".to_owned()),
             "S3_BUCKET" => Some("placeonix-prod".to_owned()),
             _ => None,
         })
@@ -310,6 +373,8 @@ mod tests {
             DeploymentEnvironment::Production
         );
         assert_eq!(config.http.bind_addr.to_string(), "127.0.0.1:9009");
+        assert_eq!(config.http.request_timeout_secs, 12);
+        assert_eq!(config.http.max_body_bytes, 2048);
         assert_eq!(config.object_storage.bucket, "placeonix-prod");
     }
 

@@ -1,11 +1,17 @@
+use std::time::Duration;
+
 use api_contracts::AppError;
 use axum::{routing::get, Router};
-use http::{HeaderName, HeaderValue, Request};
+use http::{HeaderName, HeaderValue, Method, Request};
 use placeonix_config::AppConfig;
-use tower_http::request_id::{
-    MakeRequestId, PropagateRequestIdLayer, RequestId, SetRequestIdLayer,
+use tower::ServiceBuilder;
+use tower_http::{
+    cors::{Any, CorsLayer},
+    limit::RequestBodyLimitLayer,
+    request_id::{MakeRequestId, PropagateRequestIdLayer, RequestId, SetRequestIdLayer},
+    timeout::TimeoutLayer,
+    trace::TraceLayer,
 };
-use tower_http::trace::TraceLayer;
 use tracing::info;
 use uuid::Uuid;
 
@@ -38,13 +44,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
     });
 
-    let app = app
-        .layer(SetRequestIdLayer::new(
-            request_id_header.clone(),
-            MakeRequestUuid,
-        ))
-        .layer(PropagateRequestIdLayer::new(request_id_header))
-        .layer(trace_layer);
+    let app = app.layer(
+        ServiceBuilder::new()
+            .layer(SetRequestIdLayer::new(
+                request_id_header.clone(),
+                MakeRequestUuid,
+            ))
+            .layer(PropagateRequestIdLayer::new(request_id_header))
+            .layer(trace_layer)
+            .layer(RequestBodyLimitLayer::new(config.http.max_body_bytes))
+            .layer(TimeoutLayer::new(Duration::from_secs(
+                config.http.request_timeout_secs,
+            )))
+            .layer(cors_layer()),
+    );
 
     let listener = tokio::net::TcpListener::bind(config.http.bind_addr).await?;
     let local_addr = listener.local_addr()?;
@@ -95,4 +108,18 @@ fn metrics_router(handle: telemetry::MetricsHandle) -> Router {
 #[cfg(not(feature = "metrics"))]
 fn metrics_router(_handle: telemetry::MetricsHandle) -> Router {
     Router::new()
+}
+
+fn cors_layer() -> CorsLayer {
+    CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::PATCH,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
+        .allow_headers(Any)
 }
