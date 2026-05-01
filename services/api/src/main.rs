@@ -25,6 +25,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let telemetry = telemetry::init(&config.service.name)?;
     let db_pools = placeonix_db::connect(&config.databases).await?;
     db_pools.verify_connectivity().await?;
+    let audit_writer = placeonix_audit::AuditWriter::new(db_pools.control().clone());
 
     let mut app = Router::new()
         .route("/healthz", get(healthz))
@@ -51,6 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let app = app.layer(
         ServiceBuilder::new()
+            .layer(Extension(audit_writer))
             .layer(SetRequestIdLayer::new(
                 request_id_header.clone(),
                 MakeRequestUuid,

@@ -1588,6 +1588,7 @@ dependencies = [
  "axum 0.7.9",
  "http 1.4.0",
  "placeonix-api-contracts",
+ "placeonix-audit",
  "placeonix-config",
  "placeonix-db",
  "placeonix-telemetry",
@@ -1609,6 +1610,16 @@ dependencies = [
  "http 1.4.0",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "placeonix-audit"
+version = "0.1.0"
+dependencies = [
+ "http 1.4.0",
+ "serde_json",
+ "sqlx",
+ "uuid",
 ]
 
 [[package]]

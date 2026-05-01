@@ -1,5 +1,6 @@
 [workspace]
 members = [
+  "crates/audit",
   "crates/api-contracts",
   "crates/config",
   "crates/db",

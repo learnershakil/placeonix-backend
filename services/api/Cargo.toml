@@ -20,6 +20,7 @@ tower-http = { workspace = true, features = ["cors", "limit", "request-id", "tim
 uuid = { workspace = true, features = ["v4"] }
 http.workspace = true
 serde.workspace = true
+placeonix-audit = { path = "../../crates/audit", package = "placeonix-audit" }
 telemetry = { path = "../../crates/telemetry", package = "placeonix-telemetry", default-features = false }
 api-contracts = { path = "../../crates/api-contracts", package = "placeonix-api-contracts" }
 placeonix-config = { path = "../../crates/config", package = "placeonix-config" }
