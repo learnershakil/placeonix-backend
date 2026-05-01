@@ -2,7 +2,10 @@ use std::time::Duration;
 
 use api_contracts::AppError;
 use axum::{extract::Extension, middleware, routing::get, Json, Router};
-use http::{HeaderName, HeaderValue, Method, Request};
+use http::{
+    header::{AUTHORIZATION, COOKIE, SET_COOKIE},
+    HeaderName, HeaderValue, Method, Request,
+};
 use placeonix_config::AppConfig;
 use placeonix_rate_limit::{enforce_rate_limits, RateLimiter};
 use placeonix_rbac::{enforce_permissions, PermissionRequirement, Principal};
@@ -13,6 +16,8 @@ use tower_http::{
     cors::{Any, CorsLayer},
     limit::RequestBodyLimitLayer,
     request_id::{MakeRequestId, PropagateRequestIdLayer, RequestId, SetRequestIdLayer},
+    sensitive_headers::SetSensitiveHeadersLayer,
+    set_header::SetResponseHeaderLayer,
     timeout::TimeoutLayer,
     trace::TraceLayer,
 };
@@ -58,12 +63,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = app.layer(
         ServiceBuilder::new()
             .layer(Extension(audit_writer))
+            .layer(SetSensitiveHeadersLayer::new(sensitive_headers()))
             .layer(SetRequestIdLayer::new(
                 request_id_header.clone(),
                 MakeRequestUuid,
             ))
             .layer(PropagateRequestIdLayer::new(request_id_header))
             .layer(trace_layer)
+            .layer(security_header(
+                "strict-transport-security",
+                "max-age=63072000; includeSubDomains; preload",
+            ))
+            .layer(security_header("x-content-type-options", "nosniff"))
+            .layer(security_header("x-frame-options", "DENY"))
+            .layer(security_header("referrer-policy", "no-referrer"))
+            .layer(security_header(
+                "permissions-policy",
+                "camera=(), microphone=(), geolocation=()",
+            ))
+            .layer(security_header(
+                "content-security-policy",
+                "default-src 'none'; frame-ancestors 'none'",
+            ))
             .layer(RequestBodyLimitLayer::new(config.http.max_body_bytes))
             .layer(TimeoutLayer::new(Duration::from_secs(
                 config.http.request_timeout_secs,
@@ -185,4 +206,21 @@ fn cors_layer() -> CorsLayer {
             Method::OPTIONS,
         ])
         .allow_headers(Any)
+}
+
+fn sensitive_headers() -> [HeaderName; 5] {
+    [
+        AUTHORIZATION,
+        COOKIE,
+        SET_COOKIE,
+        HeaderName::from_static("x-csrf-token"),
+        HeaderName::from_static("x-session-token"),
+    ]
+}
+
+fn security_header(name: &'static str, value: &'static str) -> SetResponseHeaderLayer<HeaderValue> {
+    SetResponseHeaderLayer::if_not_present(
+        HeaderName::from_static(name),
+        HeaderValue::from_static(value),
+    )
 }
