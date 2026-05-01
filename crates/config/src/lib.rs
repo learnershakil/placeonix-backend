@@ -23,7 +23,13 @@ const DEFAULT_RATE_LIMIT_WINDOW_SECS: &str = "60";
 const DEFAULT_RATE_LIMIT_IP_REQUESTS: &str = "120";
 const DEFAULT_RATE_LIMIT_USER_REQUESTS: &str = "600";
 const DEFAULT_RATE_LIMIT_ROUTE_REQUESTS: &str = "3000";
+const DEFAULT_JWT_ISSUER: &str = "placeonix-api";
+const DEFAULT_JWT_SECRET: &str = "placeonix_local_dev_jwt_secret_32_bytes_minimum";
+const DEFAULT_JWT_ACCESS_TTL_SECS: &str = "900";
+const DEFAULT_REFRESH_TTL_SECS: &str = "2592000";
 const DEFAULT_NATS_URL: &str = "nats://localhost:4222";
+const DEFAULT_QUEUE_MAX_DEPTH: &str = "10000";
+const DEFAULT_QUEUE_VISIBILITY_TIMEOUT_SECS: &str = "60";
 const DEFAULT_S3_ENDPOINT: &str = "http://localhost:9000";
 const DEFAULT_S3_BUCKET: &str = "placeonix";
 const DEFAULT_S3_ACCESS_KEY: &str = "placeonix";
@@ -36,7 +42,9 @@ pub struct AppConfig {
     pub databases: DatabaseConfig,
     pub redis_url: SecretString,
     pub rate_limits: RateLimitConfig,
+    pub jwt: JwtConfig,
     pub nats_url: SecretString,
+    pub queues: QueueConfig,
     pub object_storage: ObjectStorageConfig,
 }
 
@@ -111,6 +119,23 @@ impl AppConfig {
             "REDIS_URL",
             get_or_default(&get, "REDIS_URL", DEFAULT_REDIS_URL),
         )?;
+        let jwt_issuer = non_empty(
+            "JWT_ISSUER",
+            get_or_default(&get, "JWT_ISSUER", DEFAULT_JWT_ISSUER),
+        )?;
+        let jwt_secret = required_secret_min_len(
+            "JWT_SECRET",
+            get_or_default(&get, "JWT_SECRET", DEFAULT_JWT_SECRET),
+            32,
+        )?;
+        let jwt_access_ttl_secs = parse_positive_u64(
+            "JWT_ACCESS_TTL_SECS",
+            get_or_default(&get, "JWT_ACCESS_TTL_SECS", DEFAULT_JWT_ACCESS_TTL_SECS),
+        )?;
+        let refresh_ttl_secs = parse_positive_u64(
+            "REFRESH_TOKEN_TTL_SECS",
+            get_or_default(&get, "REFRESH_TOKEN_TTL_SECS", DEFAULT_REFRESH_TTL_SECS),
+        )?;
         let rate_limits = RateLimitConfig {
             window_secs: parse_positive_u64(
                 "RATE_LIMIT_WINDOW_SECS",
@@ -149,6 +174,20 @@ impl AppConfig {
             "NATS_URL",
             get_or_default(&get, "NATS_URL", DEFAULT_NATS_URL),
         )?;
+        let queues = QueueConfig {
+            max_depth: parse_positive_u32(
+                "QUEUE_MAX_DEPTH",
+                get_or_default(&get, "QUEUE_MAX_DEPTH", DEFAULT_QUEUE_MAX_DEPTH),
+            )?,
+            visibility_timeout_secs: parse_positive_u64(
+                "QUEUE_VISIBILITY_TIMEOUT_SECS",
+                get_or_default(
+                    &get,
+                    "QUEUE_VISIBILITY_TIMEOUT_SECS",
+                    DEFAULT_QUEUE_VISIBILITY_TIMEOUT_SECS,
+                ),
+            )?,
+        };
 
         let endpoint = get_or_default(&get, "S3_ENDPOINT", DEFAULT_S3_ENDPOINT);
         parse_url("S3_ENDPOINT", &endpoint)?;
@@ -185,7 +224,14 @@ impl AppConfig {
             },
             redis_url,
             rate_limits,
+            jwt: JwtConfig {
+                issuer: jwt_issuer,
+                secret: jwt_secret,
+                access_ttl_secs: jwt_access_ttl_secs,
+                refresh_ttl_secs,
+            },
             nats_url,
+            queues,
             object_storage: ObjectStorageConfig {
                 endpoint,
                 bucket,
@@ -224,6 +270,20 @@ pub struct RateLimitConfig {
     pub per_ip_requests: u32,
     pub per_user_requests: u32,
     pub per_route_requests: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JwtConfig {
+    pub issuer: String,
+    pub secret: SecretString,
+    pub access_ttl_secs: u64,
+    pub refresh_ttl_secs: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QueueConfig {
+    pub max_depth: u32,
+    pub visibility_timeout_secs: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -375,6 +435,23 @@ fn required_secret(key: &'static str, value: String) -> Result<SecretString, Con
     non_empty(key, value).map(SecretString::new)
 }
 
+fn required_secret_min_len(
+    key: &'static str,
+    value: String,
+    min_len: usize,
+) -> Result<SecretString, ConfigError> {
+    let value = non_empty(key, value)?;
+    if value.len() < min_len {
+        Err(ConfigError::InvalidNumber {
+            key,
+            value: value.len().to_string(),
+            reason: "secret is shorter than the required minimum length",
+        })
+    } else {
+        Ok(SecretString::new(value))
+    }
+}
+
 fn non_empty(key: &'static str, value: String) -> Result<String, ConfigError> {
     if value.trim().is_empty() {
         Err(ConfigError::MissingRequired { key })
@@ -463,6 +540,11 @@ mod tests {
         assert_eq!(config.rate_limits.per_ip_requests, 120);
         assert_eq!(config.rate_limits.per_user_requests, 600);
         assert_eq!(config.rate_limits.per_route_requests, 3000);
+        assert_eq!(config.jwt.issuer, "placeonix-api");
+        assert_eq!(config.jwt.access_ttl_secs, 900);
+        assert_eq!(config.jwt.refresh_ttl_secs, 2_592_000);
+        assert_eq!(config.queues.max_depth, 10_000);
+        assert_eq!(config.queues.visibility_timeout_secs, 60);
         assert_eq!(config.object_storage.bucket, "placeonix");
     }
 
@@ -480,6 +562,12 @@ mod tests {
             "RATE_LIMIT_IP_REQUESTS" => Some("20".to_owned()),
             "RATE_LIMIT_USER_REQUESTS" => Some("30".to_owned()),
             "RATE_LIMIT_ROUTE_REQUESTS" => Some("40".to_owned()),
+            "JWT_ISSUER" => Some("placeonix-test".to_owned()),
+            "JWT_SECRET" => Some("01234567890123456789012345678901".to_owned()),
+            "JWT_ACCESS_TTL_SECS" => Some("60".to_owned()),
+            "REFRESH_TOKEN_TTL_SECS" => Some("120".to_owned()),
+            "QUEUE_MAX_DEPTH" => Some("100".to_owned()),
+            "QUEUE_VISIBILITY_TIMEOUT_SECS" => Some("15".to_owned()),
             "S3_BUCKET" => Some("placeonix-prod".to_owned()),
             _ => None,
         })
@@ -499,6 +587,11 @@ mod tests {
         assert_eq!(config.rate_limits.per_ip_requests, 20);
         assert_eq!(config.rate_limits.per_user_requests, 30);
         assert_eq!(config.rate_limits.per_route_requests, 40);
+        assert_eq!(config.jwt.issuer, "placeonix-test");
+        assert_eq!(config.jwt.access_ttl_secs, 60);
+        assert_eq!(config.jwt.refresh_ttl_secs, 120);
+        assert_eq!(config.queues.max_depth, 100);
+        assert_eq!(config.queues.visibility_timeout_secs, 15);
         assert_eq!(config.object_storage.bucket, "placeonix-prod");
     }
 
@@ -532,6 +625,23 @@ mod tests {
             error,
             ConfigError::InvalidUrl {
                 key: "REDIS_URL",
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn rejects_short_jwt_secret() {
+        let error = AppConfig::from_source("placeonix-api", |key| match key {
+            "JWT_SECRET" => Some("short".to_owned()),
+            _ => None,
+        })
+        .expect_err("short jwt secret is rejected");
+
+        assert!(matches!(
+            error,
+            ConfigError::InvalidNumber {
+                key: "JWT_SECRET",
                 ..
             }
         ));
