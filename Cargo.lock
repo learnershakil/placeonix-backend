@@ -1859,9 +1859,19 @@ version = "0.1.0"
 dependencies = [
  "placeonix-config",
  "placeonix-telemetry",
+ "placeonix-worker-core",
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "placeonix-worker-core"
+version = "0.1.0"
+dependencies = [
+ "placeonix-platform",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1870,6 +1880,7 @@ version = "0.1.0"
 dependencies = [
  "placeonix-config",
  "placeonix-telemetry",
+ "placeonix-worker-core",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -1881,6 +1892,7 @@ version = "0.1.0"
 dependencies = [
  "placeonix-config",
  "placeonix-telemetry",
+ "placeonix-worker-core",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -1892,6 +1904,7 @@ version = "0.1.0"
 dependencies = [
  "placeonix-config",
  "placeonix-telemetry",
+ "placeonix-worker-core",
  "tokio",
  "tracing",
  "tracing-subscriber",

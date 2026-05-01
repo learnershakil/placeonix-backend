@@ -10,6 +10,7 @@ members = [
   "crates/rbac",
   "crates/tenant",
   "crates/telemetry",
+  "crates/worker-core",
   "services/api",
   "services/worker-judge",
   "services/worker-proctor",

@@ -16,3 +16,4 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 telemetry = { path = "../../crates/telemetry", package = "placeonix-telemetry", default-features = false }
 placeonix-config = { path = "../../crates/config", package = "placeonix-config" }
+placeonix-worker-core = { path = "../../crates/worker-core", package = "placeonix-worker-core" }
