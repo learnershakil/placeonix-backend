@@ -4,6 +4,7 @@ use api_contracts::AppError;
 use axum::{extract::Extension, middleware, routing::get, Json, Router};
 use http::{HeaderName, HeaderValue, Method, Request};
 use placeonix_config::AppConfig;
+use placeonix_rbac::{enforce_permissions, PermissionRequirement, Principal};
 use placeonix_tenant::{resolve_tenant, TenantContext, TenantResolver};
 use serde::Serialize;
 use tower::ServiceBuilder;
@@ -29,6 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut app = Router::new()
         .route("/healthz", get(healthz))
+        .merge(admin_router())
         .merge(tenant_router(TenantResolver::new(db_pools.clone())))
         .fallback(not_found);
     if let Some(handle) = telemetry.metrics_handle() {
@@ -95,6 +97,22 @@ fn tenant_router(resolver: TenantResolver) -> Router {
         .route_layer(middleware::from_fn_with_state(resolver, resolve_tenant))
 }
 
+fn admin_router() -> Router {
+    Router::new()
+        .route("/api/v1/admin/rbac-check", get(rbac_check))
+        .route_layer(middleware::from_fn_with_state(
+            PermissionRequirement::all(["admin:read"]),
+            enforce_permissions,
+        ))
+}
+
+async fn rbac_check(Extension(principal): Extension<Principal>) -> Json<RbacResponse> {
+    Json(RbacResponse {
+        allowed: true,
+        permissions: principal.permissions().to_vec(),
+    })
+}
+
 async fn current_tenant(Extension(context): Extension<TenantContext>) -> Json<TenantResponse> {
     Json(TenantResponse {
         id: context.id.to_string(),
@@ -102,6 +120,12 @@ async fn current_tenant(Extension(context): Extension<TenantContext>) -> Json<Te
         status: context.status.as_str(),
         source: context.source.as_str(),
     })
+}
+
+#[derive(Serialize)]
+struct RbacResponse {
+    allowed: bool,
+    permissions: Vec<String>,
 }
 
 #[derive(Serialize)]

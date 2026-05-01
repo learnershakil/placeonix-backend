@@ -1591,6 +1591,7 @@ dependencies = [
  "placeonix-audit",
  "placeonix-config",
  "placeonix-db",
+ "placeonix-rbac",
  "placeonix-telemetry",
  "placeonix-tenant",
  "serde",
@@ -1635,6 +1636,16 @@ version = "0.1.0"
 dependencies = [
  "placeonix-config",
  "sqlx",
+]
+
+[[package]]
+name = "placeonix-rbac"
+version = "0.1.0"
+dependencies = [
+ "axum 0.7.9",
+ "http 1.4.0",
+ "placeonix-api-contracts",
+ "uuid",
 ]
 
 [[package]]
