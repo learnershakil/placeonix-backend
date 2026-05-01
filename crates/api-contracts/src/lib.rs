@@ -2,7 +2,7 @@ use std::{error::Error, fmt};
 
 use axum::{response::IntoResponse, Json};
 use http::StatusCode;
-use serde::{Serialize, Serializer};
+use serde::{Deserialize, Serialize, Serializer};
 use serde_json::Value;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -187,12 +187,86 @@ pub struct ErrorBody {
     pub details: Option<Value>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SuccessEnvelope<T> {
+    pub success: bool,
+    pub data: T,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub meta: Option<PageMeta>,
+}
+
+impl<T> SuccessEnvelope<T> {
+    pub fn data(data: T) -> Self {
+        Self {
+            success: true,
+            data,
+            meta: None,
+        }
+    }
+
+    pub fn paged(data: T, meta: PageMeta) -> Self {
+        Self {
+            success: true,
+            data,
+            meta: Some(meta),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PageMeta {
+    pub limit: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TokenPairResponse {
+    pub access_token: String,
+    pub refresh_token: String,
+    pub token_type: String,
+    pub expires_in_seconds: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MeResponse {
+    pub tenant_id: String,
+    pub user_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device_id: Option<String>,
+    pub roles: Vec<String>,
+    pub permissions: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SessionResponse {
+    pub id: String,
+    pub device_id: Option<String>,
+    pub status: String,
+    pub issued_at: String,
+    pub last_seen_at: String,
+    pub expires_at: String,
+    pub revoked_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DeviceResponse {
+    pub id: String,
+    pub label: Option<String>,
+    pub user_agent: Option<String>,
+    pub first_seen_at: String,
+    pub last_seen_at: String,
+    pub revoked_at: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use axum::response::IntoResponse;
     use serde_json::json;
 
-    use super::{AppError, ErrorCode};
+    use super::{AppError, ErrorCode, MeResponse, PageMeta, SuccessEnvelope};
 
     #[test]
     fn serializes_stable_error_envelope() {
@@ -234,5 +308,42 @@ mod tests {
         let response = AppError::not_found("route not found").into_response();
 
         assert_eq!(response.status(), http::StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn serializes_success_envelope_with_meta() {
+        let value = serde_json::to_value(SuccessEnvelope::paged(
+            vec![MeResponse {
+                tenant_id: "tenant-1".to_owned(),
+                user_id: "user-1".to_owned(),
+                session_id: Some("session-1".to_owned()),
+                device_id: None,
+                roles: vec!["student".to_owned()],
+                permissions: vec!["courses:read".to_owned()],
+            }],
+            PageMeta {
+                limit: 50,
+                next_cursor: Some("cursor-1".to_owned()),
+            },
+        ))
+        .expect("success envelope serializes");
+
+        assert_eq!(
+            value,
+            json!({
+                "success": true,
+                "data": [{
+                    "tenant_id": "tenant-1",
+                    "user_id": "user-1",
+                    "session_id": "session-1",
+                    "roles": ["student"],
+                    "permissions": ["courses:read"]
+                }],
+                "meta": {
+                    "limit": 50,
+                    "next_cursor": "cursor-1"
+                }
+            })
+        );
     }
 }

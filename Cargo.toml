@@ -26,6 +26,7 @@ license = "Apache-2.0"
 axum = { version = "0.7", features = ["macros"] }
 argon2 = "0.5"
 base64 = "0.22"
+jsonwebtoken = "9"
 tokio = { version = "1.37", features = ["rt-multi-thread", "macros", "signal", "sync"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }

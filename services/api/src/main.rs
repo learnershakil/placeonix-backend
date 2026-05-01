@@ -1,7 +1,14 @@
 use std::time::Duration;
 
-use api_contracts::AppError;
-use axum::{extract::Extension, middleware, routing::get, Json, Router};
+use api_contracts::{
+    AppError, DeviceResponse, MeResponse, PageMeta, SessionResponse, SuccessEnvelope,
+};
+use axum::{
+    extract::{Extension, Path},
+    middleware,
+    routing::{delete, get, post},
+    Json, Router,
+};
 use http::{
     header::{AUTHORIZATION, COOKIE, SET_COOKIE},
     HeaderName, HeaderValue, Method, Request,
@@ -39,6 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut app = Router::new()
         .route("/healthz", get(healthz))
         .merge(admin_router())
+        .merge(auth_router(TenantResolver::new(db_pools.clone())))
         .merge(tenant_router(TenantResolver::new(db_pools.clone())))
         .fallback(not_found);
     if let Some(handle) = telemetry.metrics_handle() {
@@ -125,6 +133,22 @@ fn tenant_router(resolver: TenantResolver) -> Router {
         .route_layer(middleware::from_fn_with_state(resolver, resolve_tenant))
 }
 
+fn auth_router(resolver: TenantResolver) -> Router {
+    Router::new()
+        .route("/api/v1/auth/me", get(auth_me))
+        .route("/api/v1/auth/logout", post(logout))
+        .route("/api/v1/auth/logout-all", post(logout_all))
+        .route("/api/v1/auth/sessions", get(list_sessions))
+        .route("/api/v1/auth/sessions/:id", delete(revoke_session))
+        .route("/api/v1/auth/devices", get(list_devices))
+        .route("/api/v1/auth/devices/:id", delete(revoke_device))
+        .route_layer(middleware::from_fn_with_state(
+            PermissionRequirement::all([]),
+            enforce_permissions,
+        ))
+        .route_layer(middleware::from_fn_with_state(resolver, resolve_tenant))
+}
+
 fn admin_router() -> Router {
     Router::new()
         .route("/api/v1/admin/rbac-check", get(rbac_check))
@@ -150,6 +174,67 @@ async fn current_tenant(Extension(context): Extension<TenantContext>) -> Json<Te
     })
 }
 
+async fn auth_me(
+    Extension(context): Extension<TenantContext>,
+    Extension(principal): Extension<Principal>,
+) -> Json<SuccessEnvelope<MeResponse>> {
+    Json(SuccessEnvelope::data(MeResponse {
+        tenant_id: context.id.to_string(),
+        user_id: principal
+            .user_id()
+            .map(|id| id.to_string())
+            .unwrap_or_else(|| "anonymous".to_owned()),
+        session_id: None,
+        device_id: None,
+        roles: Vec::new(),
+        permissions: principal.permissions().to_vec(),
+    }))
+}
+
+async fn logout() -> Json<SuccessEnvelope<ActionResponse>> {
+    Json(SuccessEnvelope::data(ActionResponse::new("logged_out")))
+}
+
+async fn logout_all() -> Json<SuccessEnvelope<ActionResponse>> {
+    Json(SuccessEnvelope::data(ActionResponse::new(
+        "all_sessions_revoked",
+    )))
+}
+
+async fn list_sessions() -> Json<SuccessEnvelope<Vec<SessionResponse>>> {
+    Json(SuccessEnvelope::paged(
+        Vec::new(),
+        PageMeta {
+            limit: 50,
+            next_cursor: None,
+        },
+    ))
+}
+
+async fn revoke_session(Path(id): Path<String>) -> Json<SuccessEnvelope<ActionResponse>> {
+    Json(SuccessEnvelope::data(ActionResponse::with_id(
+        "session_revoked",
+        id,
+    )))
+}
+
+async fn list_devices() -> Json<SuccessEnvelope<Vec<DeviceResponse>>> {
+    Json(SuccessEnvelope::paged(
+        Vec::new(),
+        PageMeta {
+            limit: 50,
+            next_cursor: None,
+        },
+    ))
+}
+
+async fn revoke_device(Path(id): Path<String>) -> Json<SuccessEnvelope<ActionResponse>> {
+    Json(SuccessEnvelope::data(ActionResponse::with_id(
+        "device_revoked",
+        id,
+    )))
+}
+
 #[derive(Serialize)]
 struct RbacResponse {
     allowed: bool,
@@ -162,6 +247,26 @@ struct TenantResponse {
     slug: String,
     status: &'static str,
     source: &'static str,
+}
+
+#[derive(Serialize)]
+struct ActionResponse {
+    status: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
+}
+
+impl ActionResponse {
+    fn new(status: &'static str) -> Self {
+        Self { status, id: None }
+    }
+
+    fn with_id(status: &'static str, id: String) -> Self {
+        Self {
+            status,
+            id: Some(id),
+        }
+    }
 }
 
 #[derive(Clone)]
