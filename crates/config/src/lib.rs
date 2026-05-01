@@ -19,6 +19,10 @@ const DEFAULT_DB_MAX_CONNECTIONS: &str = "10";
 const DEFAULT_DB_MIN_CONNECTIONS: &str = "0";
 const DEFAULT_DB_ACQUIRE_TIMEOUT_SECS: &str = "3";
 const DEFAULT_REDIS_URL: &str = "redis://localhost:6379";
+const DEFAULT_RATE_LIMIT_WINDOW_SECS: &str = "60";
+const DEFAULT_RATE_LIMIT_IP_REQUESTS: &str = "120";
+const DEFAULT_RATE_LIMIT_USER_REQUESTS: &str = "600";
+const DEFAULT_RATE_LIMIT_ROUTE_REQUESTS: &str = "3000";
 const DEFAULT_NATS_URL: &str = "nats://localhost:4222";
 const DEFAULT_S3_ENDPOINT: &str = "http://localhost:9000";
 const DEFAULT_S3_BUCKET: &str = "placeonix";
@@ -31,6 +35,7 @@ pub struct AppConfig {
     pub http: HttpConfig,
     pub databases: DatabaseConfig,
     pub redis_url: SecretString,
+    pub rate_limits: RateLimitConfig,
     pub nats_url: SecretString,
     pub object_storage: ObjectStorageConfig,
 }
@@ -106,6 +111,40 @@ impl AppConfig {
             "REDIS_URL",
             get_or_default(&get, "REDIS_URL", DEFAULT_REDIS_URL),
         )?;
+        let rate_limits = RateLimitConfig {
+            window_secs: parse_positive_u64(
+                "RATE_LIMIT_WINDOW_SECS",
+                get_or_default(
+                    &get,
+                    "RATE_LIMIT_WINDOW_SECS",
+                    DEFAULT_RATE_LIMIT_WINDOW_SECS,
+                ),
+            )?,
+            per_ip_requests: parse_positive_u32(
+                "RATE_LIMIT_IP_REQUESTS",
+                get_or_default(
+                    &get,
+                    "RATE_LIMIT_IP_REQUESTS",
+                    DEFAULT_RATE_LIMIT_IP_REQUESTS,
+                ),
+            )?,
+            per_user_requests: parse_positive_u32(
+                "RATE_LIMIT_USER_REQUESTS",
+                get_or_default(
+                    &get,
+                    "RATE_LIMIT_USER_REQUESTS",
+                    DEFAULT_RATE_LIMIT_USER_REQUESTS,
+                ),
+            )?,
+            per_route_requests: parse_positive_u32(
+                "RATE_LIMIT_ROUTE_REQUESTS",
+                get_or_default(
+                    &get,
+                    "RATE_LIMIT_ROUTE_REQUESTS",
+                    DEFAULT_RATE_LIMIT_ROUTE_REQUESTS,
+                ),
+            )?,
+        };
         let nats_url = required_secret_url(
             "NATS_URL",
             get_or_default(&get, "NATS_URL", DEFAULT_NATS_URL),
@@ -145,6 +184,7 @@ impl AppConfig {
                 acquire_timeout_secs,
             },
             redis_url,
+            rate_limits,
             nats_url,
             object_storage: ObjectStorageConfig {
                 endpoint,
@@ -176,6 +216,14 @@ pub struct DatabaseConfig {
     pub max_connections: u32,
     pub min_connections: u32,
     pub acquire_timeout_secs: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RateLimitConfig {
+    pub window_secs: u64,
+    pub per_ip_requests: u32,
+    pub per_user_requests: u32,
+    pub per_route_requests: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -411,6 +459,10 @@ mod tests {
         assert_eq!(config.databases.max_connections, 10);
         assert_eq!(config.databases.min_connections, 0);
         assert_eq!(config.databases.acquire_timeout_secs, 3);
+        assert_eq!(config.rate_limits.window_secs, 60);
+        assert_eq!(config.rate_limits.per_ip_requests, 120);
+        assert_eq!(config.rate_limits.per_user_requests, 600);
+        assert_eq!(config.rate_limits.per_route_requests, 3000);
         assert_eq!(config.object_storage.bucket, "placeonix");
     }
 
@@ -424,6 +476,10 @@ mod tests {
             "DB_MAX_CONNECTIONS" => Some("24".to_owned()),
             "DB_MIN_CONNECTIONS" => Some("2".to_owned()),
             "DB_ACQUIRE_TIMEOUT_SECS" => Some("1".to_owned()),
+            "RATE_LIMIT_WINDOW_SECS" => Some("10".to_owned()),
+            "RATE_LIMIT_IP_REQUESTS" => Some("20".to_owned()),
+            "RATE_LIMIT_USER_REQUESTS" => Some("30".to_owned()),
+            "RATE_LIMIT_ROUTE_REQUESTS" => Some("40".to_owned()),
             "S3_BUCKET" => Some("placeonix-prod".to_owned()),
             _ => None,
         })
@@ -439,6 +495,10 @@ mod tests {
         assert_eq!(config.databases.max_connections, 24);
         assert_eq!(config.databases.min_connections, 2);
         assert_eq!(config.databases.acquire_timeout_secs, 1);
+        assert_eq!(config.rate_limits.window_secs, 10);
+        assert_eq!(config.rate_limits.per_ip_requests, 20);
+        assert_eq!(config.rate_limits.per_user_requests, 30);
+        assert_eq!(config.rate_limits.per_route_requests, 40);
         assert_eq!(config.object_storage.bucket, "placeonix-prod");
     }
 

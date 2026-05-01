@@ -4,6 +4,7 @@ use api_contracts::AppError;
 use axum::{extract::Extension, middleware, routing::get, Json, Router};
 use http::{HeaderName, HeaderValue, Method, Request};
 use placeonix_config::AppConfig;
+use placeonix_rate_limit::{enforce_rate_limits, RateLimiter};
 use placeonix_rbac::{enforce_permissions, PermissionRequirement, Principal};
 use placeonix_tenant::{resolve_tenant, TenantContext, TenantResolver};
 use serde::Serialize;
@@ -27,6 +28,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let db_pools = placeonix_db::connect(&config.databases).await?;
     db_pools.verify_connectivity().await?;
     let audit_writer = placeonix_audit::AuditWriter::new(db_pools.control().clone());
+    let rate_limiter =
+        RateLimiter::connect(config.redis_url.expose(), config.rate_limits.clone()).await?;
 
     let mut app = Router::new()
         .route("/healthz", get(healthz))
@@ -67,6 +70,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             )))
             .layer(cors_layer()),
     );
+    let app = app.route_layer(middleware::from_fn_with_state(
+        rate_limiter,
+        enforce_rate_limits,
+    ));
 
     let listener = tokio::net::TcpListener::bind(config.http.bind_addr).await?;
     let local_addr = listener.local_addr()?;
