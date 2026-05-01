@@ -1,9 +1,11 @@
 use std::time::Duration;
 
 use api_contracts::AppError;
-use axum::{routing::get, Router};
+use axum::{extract::Extension, middleware, routing::get, Json, Router};
 use http::{HeaderName, HeaderValue, Method, Request};
 use placeonix_config::AppConfig;
+use placeonix_tenant::{resolve_tenant, TenantContext, TenantResolver};
+use serde::Serialize;
 use tower::ServiceBuilder;
 use tower_http::{
     cors::{Any, CorsLayer},
@@ -21,11 +23,12 @@ const REQUEST_ID_HEADER: &str = "x-request-id";
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = AppConfig::from_env("placeonix-api")?;
     let telemetry = telemetry::init(&config.service.name)?;
-    let _db_pools = placeonix_db::connect(&config.databases).await?;
-    _db_pools.verify_connectivity().await?;
+    let db_pools = placeonix_db::connect(&config.databases).await?;
+    db_pools.verify_connectivity().await?;
 
     let mut app = Router::new()
         .route("/healthz", get(healthz))
+        .merge(tenant_router(TenantResolver::new(db_pools.clone())))
         .fallback(not_found);
     if let Some(handle) = telemetry.metrics_handle() {
         app = app.merge(metrics_router(handle));
@@ -82,6 +85,29 @@ async fn healthz() -> &'static str {
 
 async fn not_found() -> AppError {
     AppError::not_found("route not found")
+}
+
+fn tenant_router(resolver: TenantResolver) -> Router {
+    Router::new()
+        .route("/api/v1/tenant/current", get(current_tenant))
+        .route_layer(middleware::from_fn_with_state(resolver, resolve_tenant))
+}
+
+async fn current_tenant(Extension(context): Extension<TenantContext>) -> Json<TenantResponse> {
+    Json(TenantResponse {
+        id: context.id.to_string(),
+        slug: context.slug,
+        status: context.status.as_str(),
+        source: context.source.as_str(),
+    })
+}
+
+#[derive(Serialize)]
+struct TenantResponse {
+    id: String,
+    slug: String,
+    status: &'static str,
+    source: &'static str,
 }
 
 #[derive(Clone)]

@@ -19,7 +19,9 @@ tower.workspace = true
 tower-http = { workspace = true, features = ["cors", "limit", "request-id", "timeout", "trace"] }
 uuid = { workspace = true, features = ["v4"] }
 http.workspace = true
+serde.workspace = true
 telemetry = { path = "../../crates/telemetry", package = "placeonix-telemetry", default-features = false }
 api-contracts = { path = "../../crates/api-contracts", package = "placeonix-api-contracts" }
 placeonix-config = { path = "../../crates/config", package = "placeonix-config" }
 placeonix-db = { path = "../../crates/db", package = "placeonix-db" }
+placeonix-tenant = { path = "../../crates/tenant", package = "placeonix-tenant" }
