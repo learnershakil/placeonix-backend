@@ -5,6 +5,7 @@ members = [
   "crates/auth",
   "crates/config",
   "crates/db",
+  "crates/platform",
   "crates/rate-limit",
   "crates/rbac",
   "crates/tenant",
