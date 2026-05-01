@@ -1,0 +1,12 @@
+[package]
+name = "placeonix-auth"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+argon2.workspace = true
+base64.workspace = true
+sha2.workspace = true
+uuid = { workspace = true, features = ["v4"] }
