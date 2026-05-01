@@ -7,6 +7,7 @@ use sqlx::{
 };
 
 pub mod control_schema;
+pub mod tenant_schema;
 
 #[derive(Clone)]
 pub struct DatabasePools {
