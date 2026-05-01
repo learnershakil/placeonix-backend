@@ -1,5 +1,6 @@
 [workspace]
 members = [
+  "crates/telemetry",
   "services/api",
   "services/worker-judge",
   "services/worker-proctor",
@@ -17,7 +18,17 @@ license = "Apache-2.0"
 axum = { version = "0.7", features = ["macros"] }
 tokio = { version = "1.37", features = ["rt-multi-thread", "macros", "signal"] }
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tower = "0.5"
+tower-http = "0.5"
+uuid = "1.8"
+http = "1.1"
+metrics = "0.22"
+metrics-exporter-prometheus = "0.14"
+opentelemetry = "0.23"
+opentelemetry_sdk = "0.23"
+opentelemetry-otlp = "0.16"
+tracing-opentelemetry = "0.24"
 
 [profile.dev]
 opt-level = 0

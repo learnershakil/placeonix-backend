@@ -1,0 +1,26 @@
+[package]
+name = "placeonix-telemetry"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+default = []
+metrics = ["dep:metrics", "dep:metrics-exporter-prometheus"]
+otel = [
+  "dep:opentelemetry",
+  "dep:opentelemetry-otlp",
+  "dep:opentelemetry_sdk",
+  "dep:tracing-opentelemetry",
+]
+
+[dependencies]
+tracing.workspace = true
+tracing-subscriber.workspace = true
+metrics = { workspace = true, optional = true }
+metrics-exporter-prometheus = { workspace = true, optional = true }
+opentelemetry = { workspace = true, optional = true }
+opentelemetry-otlp = { workspace = true, optional = true }
+opentelemetry_sdk = { workspace = true, features = ["rt-tokio"], optional = true }
+tracing-opentelemetry = { workspace = true, optional = true }
