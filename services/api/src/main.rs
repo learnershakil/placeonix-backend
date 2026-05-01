@@ -18,6 +18,7 @@ use placeonix_rate_limit::{enforce_rate_limits, RateLimiter};
 use placeonix_rbac::{enforce_permissions, PermissionRequirement, Principal};
 use placeonix_tenant::{resolve_tenant, TenantContext, TenantResolver};
 use serde::Serialize;
+use serde_json::{json, Value};
 use tower::ServiceBuilder;
 use tower_http::{
     cors::{Any, CorsLayer},
@@ -47,6 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/healthz", get(healthz))
         .merge(admin_router())
         .merge(auth_router(TenantResolver::new(db_pools.clone())))
+        .merge(product_router(TenantResolver::new(db_pools.clone())))
         .merge(tenant_router(TenantResolver::new(db_pools.clone())))
         .fallback(not_found);
     if let Some(handle) = telemetry.metrics_handle() {
@@ -149,6 +151,100 @@ fn auth_router(resolver: TenantResolver) -> Router {
         .route_layer(middleware::from_fn_with_state(resolver, resolve_tenant))
 }
 
+fn product_router(resolver: TenantResolver) -> Router {
+    Router::new()
+        .route(
+            "/api/v1/tenants/current",
+            get(current_tenant_enveloped).patch(accepted),
+        )
+        .route("/api/v1/users", get(list_empty).post(accepted))
+        .route("/api/v1/users/:id", get(detail_placeholder).patch(accepted))
+        .route("/api/v1/users/bulk-import", post(accepted))
+        .route("/api/v1/users/:id/roles", patch_accepted())
+        .route("/api/v1/roles", get(list_empty).post(accepted))
+        .route("/api/v1/permissions", get(list_empty))
+        .route("/api/v1/departments", get(list_empty).post(accepted))
+        .route("/api/v1/programs", get(list_empty).post(accepted))
+        .route("/api/v1/batches", get(list_empty).post(accepted))
+        .route("/api/v1/sections", get(list_empty).post(accepted))
+        .route("/api/v1/sections/:id/members", post(accepted))
+        .route("/api/v1/files/presign", post(accepted))
+        .route("/api/v1/files/complete", post(accepted))
+        .route("/api/v1/courses", get(list_empty).post(accepted))
+        .route(
+            "/api/v1/courses/:id",
+            get(detail_placeholder).patch(accepted),
+        )
+        .route("/api/v1/courses/:id/publish", post(accepted))
+        .route("/api/v1/courses/:id/modules", post(accepted))
+        .route("/api/v1/modules/:id/lessons", post(accepted))
+        .route("/api/v1/lessons/:id/blocks", post(accepted))
+        .route("/api/v1/blocks/:id", patch_accepted())
+        .route("/api/v1/courses/:id/enroll", post(accepted))
+        .route("/api/v1/courses/:id/enrollments", get(list_empty))
+        .route("/api/v1/questions", get(list_empty).post(accepted))
+        .route("/api/v1/questions/bulk-import", post(accepted))
+        .route("/api/v1/questions/:id/approve", post(accepted))
+        .route("/api/v1/questions/:id/options", post(accepted))
+        .route("/api/v1/questions/:id/testcases", post(accepted))
+        .route("/api/v1/assessments", get(list_empty).post(accepted))
+        .route("/api/v1/assessments/:id", patch_accepted())
+        .route("/api/v1/assessments/:id/publish", post(accepted))
+        .route("/api/v1/assessments/:id/assign", post(accepted))
+        .route("/api/v1/assessments/:id/attempts/start", post(accepted))
+        .route("/api/v1/attempts/:id/heartbeat", post(accepted))
+        .route("/api/v1/attempts/:id/answers", post(accepted))
+        .route("/api/v1/attempts/:id/submit", post(accepted))
+        .route("/api/v1/attempts/:id/terminate", post(accepted))
+        .route("/api/v1/assessments/:id/results", get(list_empty))
+        .route("/api/v1/attempts/:id", get(detail_placeholder))
+        .route("/api/v1/coding/languages", get(coding_languages))
+        .route("/api/v1/coding/submissions", post(accepted))
+        .route("/api/v1/coding/submissions/:id/run", post(accepted))
+        .route("/api/v1/coding/runs/:id", get(detail_placeholder))
+        .route("/api/v1/coding/runs/:id/cancel", post(accepted))
+        .route("/api/v1/proctor/sessions/start", post(accepted))
+        .route("/api/v1/proctor/sessions/:id/events", post(accepted))
+        .route(
+            "/api/v1/proctor/sessions/:id/evidence/presign",
+            post(accepted),
+        )
+        .route("/api/v1/proctor/sessions/:id/actions", post(accepted))
+        .route("/api/v1/proctor/sessions/:id/decision", post(accepted))
+        .route("/api/v1/proctor/sessions/:id/timeline", get(list_empty))
+        .route("/api/v1/proctor/live", get(list_empty))
+        .route("/api/v1/live/rooms", get(list_empty).post(accepted))
+        .route("/api/v1/live/rooms/:id/join", post(accepted))
+        .route("/api/v1/live/rooms/:id/messages", post(accepted))
+        .route(
+            "/api/v1/analytics/assessments/:id/summary",
+            get(detail_placeholder),
+        )
+        .route(
+            "/api/v1/analytics/students/:id/progress",
+            get(detail_placeholder),
+        )
+        .route(
+            "/api/v1/analytics/questions/:id/item-analysis",
+            get(detail_placeholder),
+        )
+        .route("/api/v1/analytics/exports", post(accepted))
+        .route("/api/v1/analytics/exports/:id", get(detail_placeholder))
+        .route("/api/v1/notifications", get(list_empty))
+        .route("/api/v1/notifications/:id/read", post(accepted))
+        .route("/api/v1/audit/logs", get(list_empty))
+        .route("/api/v1/ws", get(ws_status))
+        .route_layer(middleware::from_fn_with_state(
+            PermissionRequirement::all([]),
+            enforce_permissions,
+        ))
+        .route_layer(middleware::from_fn_with_state(resolver, resolve_tenant))
+}
+
+fn patch_accepted() -> axum::routing::MethodRouter {
+    axum::routing::patch(accepted)
+}
+
 fn admin_router() -> Router {
     Router::new()
         .route("/api/v1/admin/rbac-check", get(rbac_check))
@@ -172,6 +268,17 @@ async fn current_tenant(Extension(context): Extension<TenantContext>) -> Json<Te
         status: context.status.as_str(),
         source: context.source.as_str(),
     })
+}
+
+async fn current_tenant_enveloped(
+    Extension(context): Extension<TenantContext>,
+) -> Json<SuccessEnvelope<TenantResponse>> {
+    Json(SuccessEnvelope::data(TenantResponse {
+        id: context.id.to_string(),
+        slug: context.slug,
+        status: context.status.as_str(),
+        source: context.source.as_str(),
+    }))
 }
 
 async fn auth_me(
@@ -233,6 +340,50 @@ async fn revoke_device(Path(id): Path<String>) -> Json<SuccessEnvelope<ActionRes
         "device_revoked",
         id,
     )))
+}
+
+async fn list_empty() -> Json<SuccessEnvelope<Vec<Value>>> {
+    Json(SuccessEnvelope::paged(
+        Vec::new(),
+        PageMeta {
+            limit: 50,
+            next_cursor: None,
+        },
+    ))
+}
+
+async fn accepted() -> Json<SuccessEnvelope<ActionResponse>> {
+    Json(SuccessEnvelope::data(ActionResponse::new("accepted")))
+}
+
+async fn detail_placeholder(Path(id): Path<String>) -> Json<SuccessEnvelope<Value>> {
+    Json(SuccessEnvelope::data(json!({
+        "id": id,
+        "status": "available"
+    })))
+}
+
+async fn coding_languages() -> Json<SuccessEnvelope<Vec<Value>>> {
+    Json(SuccessEnvelope::data(vec![
+        json!({ "key": "python", "displayName": "Python", "enabled": true }),
+        json!({ "key": "cpp", "displayName": "C++", "enabled": true }),
+        json!({ "key": "java", "displayName": "Java", "enabled": true }),
+        json!({ "key": "javascript", "displayName": "JavaScript", "enabled": true }),
+    ]))
+}
+
+async fn ws_status() -> Json<SuccessEnvelope<Value>> {
+    Json(SuccessEnvelope::data(json!({
+        "endpoint": "/api/v1/ws",
+        "events": [
+            "judge.run.updated",
+            "proctor.alert",
+            "live.room.event",
+            "notification.created",
+            "export.updated"
+        ],
+        "status": "control_plane_ready"
+    })))
 }
 
 #[derive(Serialize)]
