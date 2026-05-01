@@ -35,7 +35,7 @@ impl Drop for TelemetryGuard {
     }
 }
 
-pub fn init(service_name: &'static str) -> Result<TelemetryGuard, InitError> {
+pub fn init(service_name: &str) -> Result<TelemetryGuard, InitError> {
     #[cfg(feature = "metrics")]
     let metrics = Some(metrics_exporter_prometheus::PrometheusBuilder::new().install_recorder()?);
 
@@ -52,7 +52,7 @@ fn env_filter() -> EnvFilter {
 }
 
 #[cfg(not(feature = "otel"))]
-fn init_tracing(_service_name: &'static str) -> Result<(), InitError> {
+fn init_tracing(_service_name: &str) -> Result<(), InitError> {
     tracing_subscriber::registry()
         .with(env_filter())
         .with(tracing_subscriber::fmt::layer().json().flatten_event(true))
@@ -61,7 +61,7 @@ fn init_tracing(_service_name: &'static str) -> Result<(), InitError> {
 }
 
 #[cfg(feature = "otel")]
-fn init_tracing(service_name: &'static str) -> Result<(), InitError> {
+fn init_tracing(service_name: &str) -> Result<(), InitError> {
     use opentelemetry::KeyValue;
     use opentelemetry_sdk::Resource;
 
@@ -71,7 +71,7 @@ fn init_tracing(service_name: &'static str) -> Result<(), InitError> {
         .with_trace_config(
             opentelemetry_sdk::trace::config().with_resource(Resource::new(vec![KeyValue::new(
                 "service.name",
-                service_name,
+                service_name.to_owned(),
             )])),
         )
         .install_batch(opentelemetry_sdk::runtime::Tokio)?;

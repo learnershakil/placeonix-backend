@@ -1,6 +1,7 @@
 use api_contracts::AppError;
 use axum::{routing::get, Router};
 use http::{HeaderName, HeaderValue, Request};
+use placeonix_config::AppConfig;
 use tower_http::request_id::{
     MakeRequestId, PropagateRequestIdLayer, RequestId, SetRequestIdLayer,
 };
@@ -12,7 +13,8 @@ const REQUEST_ID_HEADER: &str = "x-request-id";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let telemetry = telemetry::init("placeonix-api")?;
+    let config = AppConfig::from_env("placeonix-api")?;
+    let telemetry = telemetry::init(&config.service.name)?;
 
     let mut app = Router::new()
         .route("/healthz", get(healthz))
@@ -44,10 +46,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .layer(PropagateRequestIdLayer::new(request_id_header))
         .layer(trace_layer);
 
-    let addr = "0.0.0.0:8080";
-    let listener = tokio::net::TcpListener::bind(addr).await?;
+    let listener = tokio::net::TcpListener::bind(config.http.bind_addr).await?;
     let local_addr = listener.local_addr()?;
-    info!(%local_addr, "api listening");
+    info!(
+        service = %config.service.name,
+        environment = %config.service.environment,
+        %local_addr,
+        "api listening"
+    );
 
     axum::serve(listener, app).await?;
     Ok(())
