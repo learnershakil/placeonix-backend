@@ -18,3 +18,14 @@ axum = { version = "0.7", features = ["macros"] }
 tokio = { version = "1.37", features = ["rt-multi-thread", "macros", "signal"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[profile.dev]
+opt-level = 0
+debug = true
+overflow-checks = true
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = "debuginfo"

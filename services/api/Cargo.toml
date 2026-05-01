@@ -5,6 +5,11 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+default = []
+otel = []
+metrics = []
+
 [dependencies]
 axum.workspace = true
 tokio.workspace = true
